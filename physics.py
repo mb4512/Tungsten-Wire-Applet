@@ -13,6 +13,7 @@ class MaterialConstants:
     Omega_il: float = 1.0       # Interstitial loop relaxation volume
     Omega_vl: float = -1.0      # Vacancy loop relaxation volume
     m_rate: float = 100.0       # Void melting rate (/dpa)
+    vl_mode: str = 'fixed'      # Vacancy loop polarization mode ('fixed' or 'adaptive')
 
 # ---------------------------------------------------------
 # Mathematical & Kinetic Models

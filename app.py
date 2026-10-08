@@ -20,7 +20,6 @@ st.sidebar.header("Stage Management")
 col1, col2 = st.sidebar.columns(2)
 with col1:
     if st.button("Add Irradiation"):
-        # Find the last irradiation stage to inherit values, or use defaults
         last_irr = next((s for s in reversed(st.session_state.stages) if s["type"] == "irradiation"), None)
         if last_irr:
             st.session_state.stages.append({"type": "irradiation", "dpa": last_irr["dpa"], "stress": last_irr["stress"]})
@@ -30,7 +29,6 @@ with col1:
 
 with col2:
     if st.button("Add Annealing"):
-        # Find the last annealing stage to inherit values, or use defaults
         last_ann = next((s for s in reversed(st.session_state.stages) if s["type"] == "annealing"), None)
         if last_ann:
             st.session_state.stages.append({
@@ -91,7 +89,7 @@ with tab_settings:
 with tab_materials:
     st.subheader("Material & Defect Properties")
     mat_E_GPa = st.number_input("Young's modulus E (GPa)", value=410.0, step=1.0)
-    mat_E = mat_E_GPa * 1000.0  # Convert to MPa for internal consistency
+    mat_E = mat_E_GPa * 1000.0  
     
     mat_g_rate = st.number_input("Defect creation rate (atomic fraction/dpa)", value=0.1, format="%.3f")
     mat_c_sat = st.number_input("Saturation concentration c_sat (atomic fraction)", value=0.003, format="%.4f")
@@ -99,6 +97,13 @@ with tab_materials:
     mat_Omega_il = st.number_input("Interstitial loop relaxation volume (atomic volumes)", value=1.0, format="%.2f")
     mat_Omega_vl = st.number_input("Vacancy loop relaxation volume (atomic volumes)", value=-1.0, format="%.2f")
     mat_m_rate = st.number_input("Void melting rate (atomic fraction/dpa)", value=100.0, format="%.1f")
+    
+    mat_vl_mode = st.selectbox(
+        "Vacancy loop polarization mode (post-annealing)",
+        options=["fixed", "adaptive"],
+        index=0,
+        help="'fixed': retains the zero-stress [111] orientation generated during annealing. 'adaptive': instantly adjusts to the new applied stress upon further irradiation."
+    )
 
 with tab_beam:
     st.subheader("Irradiation Beam Profiles")
@@ -117,7 +122,6 @@ with tab_sim:
         a_param = 2.0 * np.sqrt(np.log(2)) / fwhm
         return np.exp(-a_param**2 * z**2)
 
-    # 1. Instantiate the bundled physical constants with user-defined values
     mat_constants = MaterialConstants(
         E=mat_E,
         g_rate=mat_g_rate,
@@ -125,10 +129,10 @@ with tab_sim:
         Omega_v=mat_Omega_v,
         Omega_il=mat_Omega_il,
         Omega_vl=mat_Omega_vl,
-        m_rate=mat_m_rate
+        m_rate=mat_m_rate,
+        vl_mode=mat_vl_mode
     )
 
-    # 2. Inject the constants and dynamic profiles into the Wire Instance
     wire = TungstenWire(
         material=mat_constants,
         Nx=Nx, 
@@ -137,7 +141,6 @@ with tab_sim:
         profile_g_z=current_profile_g_z
     )
 
-    # Execute stages
     for idx, stage in enumerate(st.session_state.stages):
         if stage["type"] == "irradiation":
             wire.run_irradiation(dpa=stage["dpa"], sigma_ext_initial=stage["stress"], N_steps=N_steps)
@@ -154,7 +157,6 @@ with tab_sim:
                 st.error(f"Stage {idx+1}: {str(e)}")
                 st.stop()
 
-    # Plot Results
     if len(wire.phi_plot) > 0:
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(wire.phi_plot, wire.sig_plot, color='navy', lw=2)

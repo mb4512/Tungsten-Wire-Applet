@@ -52,10 +52,22 @@ class TungstenWire:
         phi_end = phi_start + dpa
         
         eps_tot_fixed = sigma_ext_initial / self.mat.E + np.mean(self.eps_tot_zz)
+        
+        # If adaptive mode is on, vacancy loops re-polarize instantly to the new applied stress
+        if self.mat.vl_mode == 'adaptive' and np.any(self.cvl > 0):
+            # Calculate initial local stress before adaptation
+            sigma_local_initial = self.mat.E * (eps_tot_fixed - self.eps_tot_zz)
+            # Vacancy loops orient based on opposite of applied stress
+            Om_tilde_vl_zz = get_Omega_tilde_zz(-sigma_local_initial)
+            self.eps_vl_zz = self.mat.Omega_vl * self.cvl * Om_tilde_vl_zz
+            # Update total eigenstrain with new VL contribution
+            self.eps_tot_zz = self.eps_v_zz + self.eps_il_zz + self.eps_vl_zz
+            # Recalculate fixed total strain since mean eigenstrain changed
+            eps_tot_fixed = sigma_ext_initial / self.mat.E + np.mean(self.eps_tot_zz)
+
         dphi_nom = (phi_end - phi_start) / N_steps
         
         # Record the initial state of this irradiation phase 
-        # (This captures the zero-dose point and instantaneous grip resets)
         self.phi_plot.append(self.phi_current)
         self.sig_plot.append(sigma_ext_initial)
         
@@ -63,7 +75,6 @@ class TungstenWire:
             dphi_local = dphi_nom * self.dose_rate_2D
             sigma_local = self.mat.E * (eps_tot_fixed - self.eps_tot_zz)
             
-            # Pass the bundled MaterialConstants class directly
             rate_cv, rate_cvoid, rate_cil = calc_irradiation_rates(
                 self.cv, self.cvoid, self.mat
             )

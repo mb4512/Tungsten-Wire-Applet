@@ -20,7 +20,7 @@ st.sidebar.header("Stage Management")
 col1, col2 = st.sidebar.columns(2)
 with col1:
     if st.button("Add Irradiation"):
-        st.session_state.stages.append({"type": "irradiation", "dpa": 0.5, "stress": 800.0})
+        st.session_state.stages.append({"type": "irradiation", "dpa": 0.5, "stress": 1000.0})
         st.rerun()
 with col2:
     if st.button("Add Annealing"):
@@ -55,13 +55,23 @@ for idx, stage in enumerate(st.session_state.stages):
 # ---------------------------------------------------------
 # Main Layout
 # ---------------------------------------------------------
-tab_sim, tab_settings = st.tabs(["Simulation", "Runtime Settings"])
+tab_sim, tab_materials, tab_settings = st.tabs(["Simulation", "Material Constants", "Runtime Settings"])
 
 with tab_settings:
     st.subheader("Grid Resolution")
     Nx = st.number_input("Nx (Depth resolution)", min_value=10, max_value=500, value=50)
     Nz = st.number_input("Nz (Axial resolution)", min_value=50, max_value=1000, value=150)
     N_steps = st.number_input("Integration steps per irradiation stage", min_value=100, max_value=5000, value=500)
+
+with tab_materials:
+    st.subheader("Material & Defect Properties")
+    mat_E = st.number_input("Young's modulus E (MPa)", value=410000.0, step=1000.0)
+    mat_g_rate = st.number_input("Defect creation rate (/dpa)", value=0.1, format="%.3f")
+    mat_c_sat = st.number_input("Saturation concentration c_sat (atomic fraction)", value=0.003, format="%.4f")
+    mat_Omega_v = st.number_input("Vacancy relaxation volume", value=-0.3, format="%.2f")
+    mat_Omega_il = st.number_input("Interstitial loop relaxation volume", value=1.0, format="%.2f")
+    mat_Omega_vl = st.number_input("Vacancy loop relaxation volume", value=-1.0, format="%.2f")
+    mat_m_rate = st.number_input("Void melting rate (/dpa)", value=100.0, format="%.1f")
 
 with tab_sim:
     col_prof1, col_prof2 = st.columns(2)
@@ -79,8 +89,16 @@ with tab_sim:
         a_param = 2.0 * np.sqrt(np.log(2)) / fwhm
         return np.exp(-a_param**2 * z**2)
 
-    # 1. Instantiate the bundled physical constants
-    mat_constants = MaterialConstants()
+    # 1. Instantiate the bundled physical constants with user-defined values
+    mat_constants = MaterialConstants(
+        E=mat_E,
+        g_rate=mat_g_rate,
+        c_sat=mat_c_sat,
+        Omega_v=mat_Omega_v,
+        Omega_il=mat_Omega_il,
+        Omega_vl=mat_Omega_vl,
+        m_rate=mat_m_rate
+    )
 
     # 2. Inject the constants and dynamic profiles into the Wire Instance
     wire = TungstenWire(

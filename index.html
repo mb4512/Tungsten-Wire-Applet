@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Irradiation Creep</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.31.1/build/stlite.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.31.1/build/stlite.js"></script>
+    <script>
+      stlite.mount({
+        requirements: ["numpy", "matplotlib"],
+        entrypoint: "app.py",
+        files: {
+          "app.py": { url: "./app.py" }
+          // If you create separate modules, list them here too:
+          // "physics_engine.py": { url: "./physics_engine.py" }
+        }
+      }, document.getElementById("root"));
+    </script>
+  </body>
+</html>

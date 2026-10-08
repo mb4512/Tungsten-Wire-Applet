@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 
 from physics import MaterialConstants
 from solver import TungstenWire
+from beam import BeamProfiles
 
 st.set_page_config(page_title="Irradiation Creep Simulation", layout="wide")
 
@@ -106,37 +107,50 @@ with tab_materials:
     )
 
 with tab_beam:
-    st.subheader("Irradiation Beam Profiles")
+    st.subheader("Lateral Profile (z-direction)")
     
-    prof_type = st.selectbox(
-        "Lateral Profile Shape (z-direction)", 
-        options=["Gaussian", "Flat/Rastered"]
-    )
+    # Dynamically fetch lateral profile options from beam.py
+    lat_opts = list(BeamProfiles.LATERAL.keys())
+    lat_type = st.selectbox("Lateral Profile Shape", options=lat_opts)
     
-    col_prof1, col_prof2 = st.columns(2)
-    with col_prof1:
-        width_label = "Beam Gaussian FWHM (mm)" if prof_type == "Gaussian" else "Rastered Width (mm)"
-        beam_width = st.slider(width_label, min_value=0.1, max_value=15.0, value=2.0)
-    with col_prof2:
-        max_depth = float(np.round(TungstenWire.s, 2))
-        w_irr = st.slider("Heaviside Depth (x-direction) (µm)", min_value=0.0, max_value=max_depth, value=2.0)
+    lat_kwargs = {}
+    # Dynamically generate sliders for the selected lateral profile
+    for p in BeamProfiles.LATERAL[lat_type]["params"]:
+        lat_kwargs[p["id"]] = st.slider(p["label"], min_value=p["min"], max_value=p["max"], value=p["default"])
 
-    # Visualization of the lateral profile
+    st.markdown("---")
+    st.subheader("Depth Profile (x-direction)")
+    
+    # Dynamically fetch depth profile options from beam.py
+    dep_opts = list(BeamProfiles.DEPTH.keys())
+    dep_type = st.selectbox("Depth Profile Shape", options=dep_opts)
+    
+    dep_kwargs = {}
+    # Dynamically generate sliders for the selected depth profile
+    for p in BeamProfiles.DEPTH[dep_type]["params"]:
+        # If max is None in the registry, assign it dynamically based on the wire geometry
+        max_v = p["max"] if p["max"] is not None else float(np.round(TungstenWire.s, 2))
+        dep_kwargs[p["id"]] = st.slider(p["label"], min_value=p["min"], max_value=max_v, value=p["default"])
+
+    # --- Plotting the lateral profiles ---
     z_plot = np.linspace(-TungstenWire.L/2, TungstenWire.L/2, 500)
-    
-    a_param = 2.0 * np.sqrt(np.log(2)) / beam_width
-    gauss_prof = np.exp(-a_param**2 * z_plot**2)
-    flat_prof = np.where(np.abs(z_plot) <= beam_width / 2.0, 1.0, 0.0)
-    
     fig_prof, ax_prof = plt.subplots(figsize=(8, 3))
     
-    if prof_type == "Gaussian":
-        ax_prof.plot(z_plot, flat_prof, color='blue', lw=1.5, alpha=0.5, label='Flat/Rastered (Inactive)')
-        ax_prof.plot(z_plot, gauss_prof, color='red', lw=3.0, label='Gaussian (Active)')
-    else:
-        ax_prof.plot(z_plot, gauss_prof, color='blue', lw=1.5, alpha=0.5, label='Gaussian (Inactive)')
-        ax_prof.plot(z_plot, flat_prof, color='red', lw=3.0, label='Flat/Rastered (Active)')
+    for name, config in BeamProfiles.LATERAL.items():
+        func_kwargs = {}
+        for p in config["params"]:
+            # Use the currently set UI value if the parameter matches, otherwise use default
+            func_kwargs[p["id"]] = lat_kwargs.get(p["id"], p["default"])
         
+        # Instantiate the mathematical function
+        func = config["func"](func_kwargs)
+        profile_vals = func(z_plot)
+        
+        if name == lat_type:
+            ax_prof.plot(z_plot, profile_vals, color='red', lw=3.0, label=f'{name} (Active)')
+        else:
+            ax_prof.plot(z_plot, profile_vals, color='blue', lw=1.5, alpha=0.5, label=f'{name} (Inactive)')
+            
     ax_prof.set_xlabel("z position along wire (mm)")
     ax_prof.set_ylabel("Normalized Dose Rate")
     ax_prof.set_title("Lateral Beam Profile $g(z)$")
@@ -146,16 +160,11 @@ with tab_beam:
     st.pyplot(fig_prof)
 
 with tab_sim:
-    def current_profile_f_x(x):
-        return np.where(x <= w_irr, 1.0, 0.0)
+    # 1. Evaluate the selected mathematical functions using the UI parameters
+    current_profile_g_z = BeamProfiles.LATERAL[lat_type]["func"](lat_kwargs)
+    current_profile_f_x = BeamProfiles.DEPTH[dep_type]["func"](dep_kwargs)
 
-    def current_profile_g_z(z):
-        if prof_type == "Gaussian":
-            a_param = 2.0 * np.sqrt(np.log(2)) / beam_width
-            return np.exp(-a_param**2 * z**2)
-        else:
-            return np.where(np.abs(z) <= beam_width / 2.0, 1.0, 0.0)
-
+    # 2. Instantiate the bundled physical constants
     mat_constants = MaterialConstants(
         E=mat_E,
         g_rate=mat_g_rate,
@@ -167,6 +176,7 @@ with tab_sim:
         vl_mode=mat_vl_mode
     )
 
+    # 3. Inject the constants and dynamic profiles into the Wire Instance
     wire = TungstenWire(
         material=mat_constants,
         Nx=Nx, 
@@ -175,6 +185,7 @@ with tab_sim:
         profile_g_z=current_profile_g_z
     )
 
+    # Execute stages
     for idx, stage in enumerate(st.session_state.stages):
         if stage["type"] == "irradiation":
             wire.run_irradiation(dpa=stage["dpa"], sigma_ext_initial=stage["stress"], N_steps=N_steps)
@@ -191,6 +202,7 @@ with tab_sim:
                 st.error(f"Stage {idx+1}: {str(e)}")
                 st.stop()
 
+    # Plot Results
     if len(wire.phi_plot) > 0:
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(wire.phi_plot, wire.sig_plot, color='navy', lw=2)

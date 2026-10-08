@@ -26,7 +26,6 @@ with col1:
             st.session_state.stages.append({"type": "irradiation", "dpa": last_irr["dpa"], "stress": last_irr["stress"]})
         else:
             st.session_state.stages.append({"type": "irradiation", "dpa": 1.0, "stress": 1000.0})
-        st.rerun()
 
 with col2:
     if st.button("Add Annealing"):
@@ -47,12 +46,10 @@ with col2:
                 "r_il": 0.8, 
                 "r_vl": 0.0
             })
-        st.rerun()
 
 if st.sidebar.button("Remove Last Stage", use_container_width=True):
     if len(st.session_state.stages) > 0:
         st.session_state.stages.pop()
-        st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Sequence Configuration")
@@ -109,40 +106,45 @@ with tab_materials:
 with tab_beam:
     st.subheader("Lateral Profile (z-direction)")
     
-    # Dynamically fetch lateral profile options from beam.py
     lat_opts = list(BeamProfiles.LATERAL.keys())
-    lat_type = st.selectbox("Lateral Profile Shape", options=lat_opts)
+    lat_type = st.selectbox("Lateral Profile Shape", options=lat_opts, key="lat_profile_shape")
     
     lat_kwargs = {}
-    # Dynamically generate sliders for the selected lateral profile
     for p in BeamProfiles.LATERAL[lat_type]["params"]:
-        lat_kwargs[p["id"]] = st.slider(p["label"], min_value=p["min"], max_value=p["max"], value=p["default"])
+        lat_kwargs[p["id"]] = st.slider(
+            p["label"], 
+            min_value=p["min"], 
+            max_value=p["max"], 
+            value=p["default"], 
+            key=f"lat_param_{lat_type}_{p['id']}"
+        )
 
     st.markdown("---")
     st.subheader("Depth Profile (x-direction)")
     
-    # Dynamically fetch depth profile options from beam.py
     dep_opts = list(BeamProfiles.DEPTH.keys())
-    dep_type = st.selectbox("Depth Profile Shape", options=dep_opts)
+    dep_type = st.selectbox("Depth Profile Shape", options=dep_opts, key="dep_profile_shape")
     
     dep_kwargs = {}
-    # Dynamically generate sliders for the selected depth profile
     for p in BeamProfiles.DEPTH[dep_type]["params"]:
-        # If max is None in the registry, assign it dynamically based on the wire geometry
         max_v = p["max"] if p["max"] is not None else float(np.round(TungstenWire.s, 2))
-        dep_kwargs[p["id"]] = st.slider(p["label"], min_value=p["min"], max_value=max_v, value=p["default"])
+        dep_kwargs[p["id"]] = st.slider(
+            p["label"], 
+            min_value=p["min"], 
+            max_value=max_v, 
+            value=p["default"],
+            key=f"dep_param_{dep_type}_{p['id']}"
+        )
 
-    # --- Plotting the lateral profiles ---
+    # Visualization
     z_plot = np.linspace(-TungstenWire.L/2, TungstenWire.L/2, 500)
     fig_prof, ax_prof = plt.subplots(figsize=(8, 3))
     
     for name, config in BeamProfiles.LATERAL.items():
         func_kwargs = {}
         for p in config["params"]:
-            # Use the currently set UI value if the parameter matches, otherwise use default
             func_kwargs[p["id"]] = lat_kwargs.get(p["id"], p["default"])
         
-        # Instantiate the mathematical function
         func = config["func"](func_kwargs)
         profile_vals = func(z_plot)
         
@@ -160,11 +162,9 @@ with tab_beam:
     st.pyplot(fig_prof)
 
 with tab_sim:
-    # 1. Evaluate the selected mathematical functions using the UI parameters
     current_profile_g_z = BeamProfiles.LATERAL[lat_type]["func"](lat_kwargs)
     current_profile_f_x = BeamProfiles.DEPTH[dep_type]["func"](dep_kwargs)
 
-    # 2. Instantiate the bundled physical constants
     mat_constants = MaterialConstants(
         E=mat_E,
         g_rate=mat_g_rate,
@@ -176,7 +176,6 @@ with tab_sim:
         vl_mode=mat_vl_mode
     )
 
-    # 3. Inject the constants and dynamic profiles into the Wire Instance
     wire = TungstenWire(
         material=mat_constants,
         Nx=Nx, 
@@ -185,7 +184,6 @@ with tab_sim:
         profile_g_z=current_profile_g_z
     )
 
-    # Execute stages
     for idx, stage in enumerate(st.session_state.stages):
         if stage["type"] == "irradiation":
             wire.run_irradiation(dpa=stage["dpa"], sigma_ext_initial=stage["stress"], N_steps=N_steps)
@@ -202,7 +200,6 @@ with tab_sim:
                 st.error(f"Stage {idx+1}: {str(e)}")
                 st.stop()
 
-    # Plot Results
     if len(wire.phi_plot) > 0:
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(wire.phi_plot, wire.sig_plot, color='navy', lw=2)

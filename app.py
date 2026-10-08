@@ -107,20 +107,54 @@ with tab_materials:
 
 with tab_beam:
     st.subheader("Irradiation Beam Profiles")
+    
+    prof_type = st.selectbox(
+        "Lateral Profile Shape (z-direction)", 
+        options=["Gaussian", "Flat/Rastered"]
+    )
+    
     col_prof1, col_prof2 = st.columns(2)
     with col_prof1:
-        fwhm = st.slider("Beam Gaussian FWHM (mm)", min_value=0.1, max_value=15.0, value=2.0)
+        width_label = "Beam Gaussian FWHM (mm)" if prof_type == "Gaussian" else "Rastered Width (mm)"
+        beam_width = st.slider(width_label, min_value=0.1, max_value=15.0, value=2.0)
     with col_prof2:
         max_depth = float(np.round(TungstenWire.s, 2))
-        w_irr = st.slider("Heaviside Depth (µm)", min_value=0.0, max_value=max_depth, value=2.0)
+        w_irr = st.slider("Heaviside Depth (x-direction) (µm)", min_value=0.0, max_value=max_depth, value=2.0)
+
+    # Visualization of the lateral profile
+    z_plot = np.linspace(-TungstenWire.L/2, TungstenWire.L/2, 500)
+    
+    a_param = 2.0 * np.sqrt(np.log(2)) / beam_width
+    gauss_prof = np.exp(-a_param**2 * z_plot**2)
+    flat_prof = np.where(np.abs(z_plot) <= beam_width / 2.0, 1.0, 0.0)
+    
+    fig_prof, ax_prof = plt.subplots(figsize=(8, 3))
+    
+    if prof_type == "Gaussian":
+        ax_prof.plot(z_plot, flat_prof, color='blue', lw=1.5, alpha=0.5, label='Flat/Rastered (Inactive)')
+        ax_prof.plot(z_plot, gauss_prof, color='red', lw=3.0, label='Gaussian (Active)')
+    else:
+        ax_prof.plot(z_plot, gauss_prof, color='blue', lw=1.5, alpha=0.5, label='Gaussian (Inactive)')
+        ax_prof.plot(z_plot, flat_prof, color='red', lw=3.0, label='Flat/Rastered (Active)')
+        
+    ax_prof.set_xlabel("z position along wire (mm)")
+    ax_prof.set_ylabel("Normalized Dose Rate")
+    ax_prof.set_title("Lateral Beam Profile $g(z)$")
+    ax_prof.grid(True, linestyle='--', alpha=0.6)
+    ax_prof.legend(loc="upper right")
+    
+    st.pyplot(fig_prof)
 
 with tab_sim:
     def current_profile_f_x(x):
         return np.where(x <= w_irr, 1.0, 0.0)
 
     def current_profile_g_z(z):
-        a_param = 2.0 * np.sqrt(np.log(2)) / fwhm
-        return np.exp(-a_param**2 * z**2)
+        if prof_type == "Gaussian":
+            a_param = 2.0 * np.sqrt(np.log(2)) / beam_width
+            return np.exp(-a_param**2 * z**2)
+        else:
+            return np.where(np.abs(z) <= beam_width / 2.0, 1.0, 0.0)
 
     mat_constants = MaterialConstants(
         E=mat_E,

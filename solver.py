@@ -11,14 +11,8 @@ class TungstenWire:
     s = np.sqrt(A)       # Square side length (µm)
 
     def __init__(self, material, Nx, Nz, profile_f_x, profile_g_z):
-        # Bind material properties from the bundled class
-        self.E = material.E
-        self.g_rate = material.g_rate
-        self.c_sat = material.c_sat
-        self.m_rate = material.m_rate
-        self.Omega_v = material.Omega_v
-        self.Omega_il = material.Omega_il
-        self.Omega_vl = material.Omega_vl
+        # Store the bundled constants object
+        self.mat = material
         
         self.Nx = Nx
         self.Nz = Nz
@@ -57,28 +51,29 @@ class TungstenWire:
         phi_start = self.phi_current
         phi_end = phi_start + dpa
         
-        eps_tot_fixed = sigma_ext_initial / self.E + np.mean(self.eps_tot_zz)
+        eps_tot_fixed = sigma_ext_initial / self.mat.E + np.mean(self.eps_tot_zz)
         dphi_nom = (phi_end - phi_start) / N_steps
         
         for _ in range(N_steps):
             dphi_local = dphi_nom * self.dose_rate_2D
-            sigma_local = self.E * (eps_tot_fixed - self.eps_tot_zz)
+            sigma_local = self.mat.E * (eps_tot_fixed - self.eps_tot_zz)
             
+            # Pass the bundled MaterialConstants class directly
             rate_cv, rate_cvoid, rate_cil = calc_irradiation_rates(
-                self.cv, self.cvoid, self.g_rate, self.c_sat, self.m_rate
+                self.cv, self.cvoid, self.mat
             )
             
             self.cv += rate_cv * dphi_local
             self.cvoid += rate_cvoid * dphi_local
             self.cil += rate_cil * dphi_local
             
-            self.eps_v_zz = (1.0 / 3.0) * self.Omega_v * self.cv
+            self.eps_v_zz = (1.0 / 3.0) * self.mat.Omega_v * self.cv
             Om_tilde_zz = get_Omega_tilde_zz(sigma_local)
-            self.eps_il_zz += self.Omega_il * Om_tilde_zz * (rate_cil * dphi_local)
+            self.eps_il_zz += self.mat.Omega_il * Om_tilde_zz * (rate_cil * dphi_local)
             
             self.eps_tot_zz = self.eps_v_zz + self.eps_il_zz + self.eps_vl_zz
             
-            sigma_ext_current = self.E * (eps_tot_fixed - np.mean(self.eps_tot_zz))
+            sigma_ext_current = self.mat.E * (eps_tot_fixed - np.mean(self.eps_tot_zz))
             
             self.phi_current += dphi_nom
             self.phi_plot.append(self.phi_current)
@@ -93,14 +88,14 @@ class TungstenWire:
         self.eps_il_zz *= scale_il
 
         Om_tilde_vl_zero_zz = get_Omega_tilde_zz(np.zeros_like(self.cv))
-        self.eps_vl_zz += self.Omega_vl * cv_to_vl * Om_tilde_vl_zero_zz
+        self.eps_vl_zz += self.mat.Omega_vl * cv_to_vl * Om_tilde_vl_zero_zz
 
         self.cv -= reacting_cv
         self.cvoid += cv_to_void
         self.cil -= cv_to_il
         self.cvl += cv_to_vl
 
-        self.eps_v_zz = (1.0 / 3.0) * self.Omega_v * self.cv
+        self.eps_v_zz = (1.0 / 3.0) * self.mat.Omega_v * self.cv
         self.eps_tot_zz = self.eps_v_zz + self.eps_il_zz + self.eps_vl_zz
         
         self.annealing_markers.append(self.phi_current)

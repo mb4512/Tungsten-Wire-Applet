@@ -26,11 +26,11 @@ def get_Omega_tilde_zz(sigma_local):
     trace = nz + 2 * nxy
     return np.where(trace != 0, nz / trace, 0.0)
 
-def calc_irradiation_rates(cv, cvoid, g_rate, c_sat, m_rate):
-    """Calculates defect accumulation rates during active irradiation."""
-    rate_cv = g_rate * (1.0 - cv / c_sat) + m_rate * cvoid
-    rate_cvoid = -m_rate * cvoid
-    rate_cil = g_rate * (1.0 - cv / c_sat)
+def calc_irradiation_rates(cv, cvoid, mat: MaterialConstants):
+    """Calculates defect accumulation rates reading from the constants class."""
+    rate_cv = mat.g_rate * (1.0 - cv / mat.c_sat) + mat.m_rate * cvoid
+    rate_cvoid = -mat.m_rate * cvoid
+    rate_cil = mat.g_rate * (1.0 - cv / mat.c_sat)
     return rate_cv, rate_cvoid, rate_cil
 
 def calc_annealing_transfers(cv, cil, fraction, r_void, r_il, r_vl):

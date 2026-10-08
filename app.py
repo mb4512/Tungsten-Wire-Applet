@@ -14,42 +14,50 @@ if "stages" not in st.session_state:
     ]
 
 # ---------------------------------------------------------
+# State Callbacks (Fixes the widget desync bug)
+# ---------------------------------------------------------
+def add_irradiation():
+    last_irr = next((s for s in reversed(st.session_state.stages) if s["type"] == "irradiation"), None)
+    if last_irr:
+        st.session_state.stages.append({"type": "irradiation", "dpa": last_irr["dpa"], "stress": last_irr["stress"]})
+    else:
+        st.session_state.stages.append({"type": "irradiation", "dpa": 1.0, "stress": 1000.0})
+
+def add_annealing():
+    last_ann = next((s for s in reversed(st.session_state.stages) if s["type"] == "annealing"), None)
+    if last_ann:
+        st.session_state.stages.append({
+            "type": "annealing", 
+            "fraction": last_ann["fraction"], 
+            "r_void": last_ann["r_void"], 
+            "r_il": last_ann["r_il"], 
+            "r_vl": last_ann["r_vl"]
+        })
+    else:
+        st.session_state.stages.append({
+            "type": "annealing", 
+            "fraction": 0.9, 
+            "r_void": 0.2, 
+            "r_il": 0.8, 
+            "r_vl": 0.0
+        })
+
+def remove_last_stage():
+    if len(st.session_state.stages) > 0:
+        st.session_state.stages.pop()
+
+# ---------------------------------------------------------
 # Sidebar Layout: Stage Management
 # ---------------------------------------------------------
 st.sidebar.header("Stage Management")
 
 col1, col2 = st.sidebar.columns(2)
 with col1:
-    if st.button("Add Irradiation"):
-        last_irr = next((s for s in reversed(st.session_state.stages) if s["type"] == "irradiation"), None)
-        if last_irr:
-            st.session_state.stages.append({"type": "irradiation", "dpa": last_irr["dpa"], "stress": last_irr["stress"]})
-        else:
-            st.session_state.stages.append({"type": "irradiation", "dpa": 1.0, "stress": 1000.0})
-
+    st.button("Add Irradiation", on_click=add_irradiation)
 with col2:
-    if st.button("Add Annealing"):
-        last_ann = next((s for s in reversed(st.session_state.stages) if s["type"] == "annealing"), None)
-        if last_ann:
-            st.session_state.stages.append({
-                "type": "annealing", 
-                "fraction": last_ann["fraction"], 
-                "r_void": last_ann["r_void"], 
-                "r_il": last_ann["r_il"], 
-                "r_vl": last_ann["r_vl"]
-            })
-        else:
-            st.session_state.stages.append({
-                "type": "annealing", 
-                "fraction": 0.9, 
-                "r_void": 0.2, 
-                "r_il": 0.8, 
-                "r_vl": 0.0
-            })
+    st.button("Add Annealing", on_click=add_annealing)
 
-if st.sidebar.button("Remove Last Stage", use_container_width=True):
-    if len(st.session_state.stages) > 0:
-        st.session_state.stages.pop()
+st.sidebar.button("Remove Last Stage", on_click=remove_last_stage, use_container_width=True)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Sequence Configuration")

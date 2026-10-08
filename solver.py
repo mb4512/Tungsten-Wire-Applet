@@ -1,88 +1,106 @@
 import numpy as np
-from physics import (E, g_rate, c_sat, m_rate, Omega_v, Omega_il, Omega_vl, get_Omega_tilde_zz)
+from physics import (get_Omega_tilde_zz, calc_irradiation_rates, calc_annealing_transfers)
 
-def setup_grid(Nx, Nz, L, s, fwhm, w_irr):
-    """Initializes the 2D spatial grid, dose profile, and state dictionary."""
-    x_arr = np.linspace(0, s, Nx)
-    z_arr = np.linspace(-L/2, L/2, Nz)
-    X, Z = np.meshgrid(x_arr, z_arr, indexing='ij')
+class TungstenWire:
+    # ---------------------------------------------------------
+    # Wire Geometry (Evaluated within the class)
+    # ---------------------------------------------------------
+    L = 15.0             # Wire length (mm)
+    r = 8.0              # Equivalent wire radius (µm)
+    A = np.pi * r**2     # Cross-sectional area (µm^2)
+    s = np.sqrt(A)       # Square side length (µm)
 
-    f_X = np.where(X <= w_irr, 1.0, 0.0)
-    a_param = 2.0 * np.sqrt(np.log(2)) / fwhm
-    g_Z = np.exp(-a_param**2 * Z**2)
-    
-    dose_rate_2D = f_X * g_Z
-    max_dose = np.max(dose_rate_2D)
-    if max_dose > 0:
-        dose_rate_2D /= max_dose
-
-    state = {
-        'cv': np.zeros_like(X),
-        'cil': np.zeros_like(X),
-        'cvl': np.zeros_like(X),
-        'cvoid': np.zeros_like(X),
-        'eps_v_zz': np.zeros_like(X),
-        'eps_il_zz': np.zeros_like(X),
-        'eps_vl_zz': np.zeros_like(X),
-        'eps_tot_zz': np.zeros_like(X)
-    }
-    return state, dose_rate_2D
-
-def run_irradiation(state, dose_rate_2D, phi_start, dpa, sigma_ext_initial, N_steps):
-    """Advances the state over a continuous irradiation phase."""
-    phi_end = phi_start + dpa
-    eps_tot_fixed = sigma_ext_initial / E + np.mean(state['eps_tot_zz'])
-    dphi_nom = (phi_end - phi_start) / N_steps
-    
-    phi_current = phi_start
-    phi_plot = []
-    sig_plot = []
-    
-    for _ in range(N_steps):
-        dphi_local = dphi_nom * dose_rate_2D
-        sigma_local = E * (eps_tot_fixed - state['eps_tot_zz'])
+    def __init__(self, material, Nx, Nz, profile_f_x, profile_g_z):
+        # Bind material properties from the bundled class
+        self.E = material.E
+        self.g_rate = material.g_rate
+        self.c_sat = material.c_sat
+        self.m_rate = material.m_rate
+        self.Omega_v = material.Omega_v
+        self.Omega_il = material.Omega_il
+        self.Omega_vl = material.Omega_vl
         
-        rate_cv = g_rate * (1.0 - state['cv'] / c_sat) + m_rate * state['cvoid']
-        rate_cvoid = -m_rate * state['cvoid']
-        rate_cil = g_rate * (1.0 - state['cv'] / c_sat)
+        self.Nx = Nx
+        self.Nz = Nz
         
-        state['cv'] += rate_cv * dphi_local
-        state['cvoid'] += rate_cvoid * dphi_local
-        state['cil'] += rate_cil * dphi_local
+        # Use the class-level geometric constants for the grid
+        self.x_arr = np.linspace(0, self.s, self.Nx)
+        self.z_arr = np.linspace(-self.L/2, self.L/2, self.Nz)
+        self.X, self.Z = np.meshgrid(self.x_arr, self.z_arr, indexing='ij')
+
+        # Evaluate the generic user-provided functions over the grid
+        f_X = profile_f_x(self.X)
+        g_Z = profile_g_z(self.Z)
         
-        state['eps_v_zz'] = (1.0 / 3.0) * Omega_v * state['cv']
-        Om_tilde_zz = get_Omega_tilde_zz(sigma_local)
-        state['eps_il_zz'] += Omega_il * Om_tilde_zz * (rate_cil * dphi_local)
+        self.dose_rate_2D = f_X * g_Z
+        max_dose = np.max(self.dose_rate_2D)
+        if max_dose > 0:
+            self.dose_rate_2D /= max_dose
+
+        # Initialize state arrays
+        self.cv = np.zeros_like(self.X)
+        self.cil = np.zeros_like(self.X)
+        self.cvl = np.zeros_like(self.X)
+        self.cvoid = np.zeros_like(self.X)
         
-        state['eps_tot_zz'] = state['eps_v_zz'] + state['eps_il_zz'] + state['eps_vl_zz']
-        sigma_ext_current = E * (eps_tot_fixed - np.mean(state['eps_tot_zz']))
+        self.eps_v_zz = np.zeros_like(self.X)
+        self.eps_il_zz = np.zeros_like(self.X)
+        self.eps_vl_zz = np.zeros_like(self.X)
+        self.eps_tot_zz = np.zeros_like(self.X)
         
-        phi_current += dphi_nom
-        phi_plot.append(phi_current)
-        sig_plot.append(sigma_ext_current)
+        self.phi_current = 0.0
+        self.phi_plot = []
+        self.sig_plot = []
+        self.annealing_markers = []
+
+    def run_irradiation(self, dpa, sigma_ext_initial, N_steps):
+        phi_start = self.phi_current
+        phi_end = phi_start + dpa
         
-    return phi_current, phi_plot, sig_plot
+        eps_tot_fixed = sigma_ext_initial / self.E + np.mean(self.eps_tot_zz)
+        dphi_nom = (phi_end - phi_start) / N_steps
+        
+        for _ in range(N_steps):
+            dphi_local = dphi_nom * self.dose_rate_2D
+            sigma_local = self.E * (eps_tot_fixed - self.eps_tot_zz)
+            
+            rate_cv, rate_cvoid, rate_cil = calc_irradiation_rates(
+                self.cv, self.cvoid, self.g_rate, self.c_sat, self.m_rate
+            )
+            
+            self.cv += rate_cv * dphi_local
+            self.cvoid += rate_cvoid * dphi_local
+            self.cil += rate_cil * dphi_local
+            
+            self.eps_v_zz = (1.0 / 3.0) * self.Omega_v * self.cv
+            Om_tilde_zz = get_Omega_tilde_zz(sigma_local)
+            self.eps_il_zz += self.Omega_il * Om_tilde_zz * (rate_cil * dphi_local)
+            
+            self.eps_tot_zz = self.eps_v_zz + self.eps_il_zz + self.eps_vl_zz
+            
+            sigma_ext_current = self.E * (eps_tot_fixed - np.mean(self.eps_tot_zz))
+            
+            self.phi_current += dphi_nom
+            self.phi_plot.append(self.phi_current)
+            self.sig_plot.append(sigma_ext_current)
 
-def run_annealing(state, fraction, r_void, r_il, r_vl):
-    """Applies an instantaneous zero-stress annealing step to the current state."""
-    reacting_cv = state['cv'] * fraction
-    cv_to_void = reacting_cv * r_void
-    cv_to_il = reacting_cv * r_il
-    cv_to_vl = reacting_cv * r_vl
+    def run_annealing(self, fraction, r_void, r_il, r_vl):
+        reacting_cv, cv_to_void, cv_to_il, cv_to_vl = calc_annealing_transfers(
+            self.cv, self.cil, fraction, r_void, r_il, r_vl
+        )
 
-    if np.any(cv_to_il > state['cil']):
-        raise ValueError("Insufficient interstitial loops for recombination.")
+        scale_il = np.where(self.cil > 0, (self.cil - cv_to_il) / self.cil, 0.0)
+        self.eps_il_zz *= scale_il
 
-    scale_il = np.where(state['cil'] > 0, (state['cil'] - cv_to_il) / state['cil'], 0.0)
-    state['eps_il_zz'] *= scale_il
+        Om_tilde_vl_zero_zz = get_Omega_tilde_zz(np.zeros_like(self.cv))
+        self.eps_vl_zz += self.Omega_vl * cv_to_vl * Om_tilde_vl_zero_zz
 
-    Om_tilde_vl_zero_zz = get_Omega_tilde_zz(np.zeros_like(state['cv']))
-    state['eps_vl_zz'] += Omega_vl * cv_to_vl * Om_tilde_vl_zero_zz
+        self.cv -= reacting_cv
+        self.cvoid += cv_to_void
+        self.cil -= cv_to_il
+        self.cvl += cv_to_vl
 
-    state['cv'] -= reacting_cv
-    state['cvoid'] += cv_to_void
-    state['cil'] -= cv_to_il
-    state['cvl'] += cv_to_vl
-
-    state['eps_v_zz'] = (1.0 / 3.0) * Omega_v * state['cv']
-    state['eps_tot_zz'] = state['eps_v_zz'] + state['eps_il_zz'] + state['eps_vl_zz']
+        self.eps_v_zz = (1.0 / 3.0) * self.Omega_v * self.cv
+        self.eps_tot_zz = self.eps_v_zz + self.eps_il_zz + self.eps_vl_zz
+        
+        self.annealing_markers.append(self.phi_current)

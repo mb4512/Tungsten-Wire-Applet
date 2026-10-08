@@ -2,8 +2,8 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-from physics import L, s
-from solver import setup_grid, run_irradiation, run_annealing
+from physics import MaterialConstants
+from solver import TungstenWire
 
 st.set_page_config(page_title="Irradiation Creep Simulation", layout="wide")
 
@@ -68,40 +68,52 @@ with tab_sim:
     with col_prof1:
         fwhm = st.slider("Beam Gaussian FWHM (mm)", min_value=0.1, max_value=15.0, value=2.0)
     with col_prof2:
-        max_depth = float(np.round(s, 2))
+        # Access the bounding dimension directly from the TungstenWire class
+        max_depth = float(np.round(TungstenWire.s, 2))
         w_irr = st.slider("Heaviside Depth (µm)", min_value=0.0, max_value=max_depth, value=2.0)
 
-    # Initialize Grid & State
-    state, dose_rate_2D = setup_grid(Nx, Nz, L, s, fwhm, w_irr)
+    def current_profile_f_x(x):
+        return np.where(x <= w_irr, 1.0, 0.0)
 
-    phi_current = 0.0
-    phi_plot = []
-    sig_plot = []
-    annealing_markers = []
+    def current_profile_g_z(z):
+        a_param = 2.0 * np.sqrt(np.log(2)) / fwhm
+        return np.exp(-a_param**2 * z**2)
 
-    # Execute Stages
+    # 1. Instantiate the bundled physical constants
+    mat_constants = MaterialConstants()
+
+    # 2. Inject the constants and dynamic profiles into the Wire Instance
+    wire = TungstenWire(
+        material=mat_constants,
+        Nx=Nx, 
+        Nz=Nz, 
+        profile_f_x=current_profile_f_x, 
+        profile_g_z=current_profile_g_z
+    )
+
+    # Execute stages
     for idx, stage in enumerate(st.session_state.stages):
         if stage["type"] == "irradiation":
-            phi_current, p_hist, s_hist = run_irradiation(
-                state, dose_rate_2D, phi_current, stage["dpa"], stage["stress"], N_steps
-            )
-            phi_plot.extend(p_hist)
-            sig_plot.extend(s_hist)
+            wire.run_irradiation(dpa=stage["dpa"], sigma_ext_initial=stage["stress"], N_steps=N_steps)
             
         elif stage["type"] == "annealing":
             try:
-                run_annealing(state, stage["fraction"], stage["r_void"], stage["r_il"], stage["r_vl"])
-                annealing_markers.append(phi_current)
+                wire.run_annealing(
+                    fraction=stage["fraction"], 
+                    r_void=stage["r_void"], 
+                    r_il=stage["r_il"], 
+                    r_vl=stage["r_vl"]
+                )
             except ValueError as e:
                 st.error(f"Stage {idx+1}: {str(e)}")
                 st.stop()
 
     # Plot Results
-    if len(phi_plot) > 0:
+    if len(wire.phi_plot) > 0:
         fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(phi_plot, sig_plot, color='navy', lw=2)
+        ax.plot(wire.phi_plot, wire.sig_plot, color='navy', lw=2)
         
-        for marker in annealing_markers:
+        for marker in wire.annealing_markers:
             ax.axvline(marker, color='red', linestyle='--', alpha=0.6)
             
         ax.set_title('Macroscopic Stress Relaxation')

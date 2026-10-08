@@ -1,24 +1,22 @@
 import numpy as np
+from dataclasses import dataclass
 
 # ---------------------------------------------------------
-# Structural & Material Parameters
+# Material & Defect Properties
 # ---------------------------------------------------------
-E = 410000.0         # Young's modulus for Tungsten (MPa)
-L = 15.0             # Wire length (mm)
-r = 8.0              # Equivalent wire radius (µm)
-A = np.pi * r**2     # Cross-sectional area (µm^2)
-s = np.sqrt(A)       # Square side length (µm)
+@dataclass
+class MaterialConstants:
+    E: float = 410000.0         # Young's modulus for Tungsten (MPa)
+    g_rate: float = 0.1         # Defect creation rate (/dpa)
+    c_sat: float = 0.003        # Saturation concentration (atomic fraction)
+    Omega_v: float = -0.3       # Vacancy relaxation volume
+    Omega_il: float = 1.0       # Interstitial loop relaxation volume
+    Omega_vl: float = -1.0      # Vacancy loop relaxation volume
+    m_rate: float = 100.0       # Void melting rate (/dpa)
 
 # ---------------------------------------------------------
-# Defect Properties
+# Mathematical & Kinetic Models
 # ---------------------------------------------------------
-g_rate = 0.1         # Defect creation rate (/dpa)
-c_sat = 0.003        # Saturation concentration (atomic fraction)
-Omega_v = -0.3       # Vacancy relaxation volume
-Omega_il = 1.0       # Interstitial loop relaxation volume
-Omega_vl = -1.0      # Vacancy loop relaxation volume
-m_rate = 100.0       # Void melting rate (/dpa)
-
 def get_Omega_tilde_zz(sigma_local):
     """Vectorized calculation of zz-component of the normalized relaxation volume."""
     alpha = (np.pi / 3) * np.tanh(-0.8 * sigma_local / 1000.0)
@@ -27,3 +25,22 @@ def get_Omega_tilde_zz(sigma_local):
     nxy = np.sin(alpha_clip) / np.sqrt(2)
     trace = nz + 2 * nxy
     return np.where(trace != 0, nz / trace, 0.0)
+
+def calc_irradiation_rates(cv, cvoid, g_rate, c_sat, m_rate):
+    """Calculates defect accumulation rates during active irradiation."""
+    rate_cv = g_rate * (1.0 - cv / c_sat) + m_rate * cvoid
+    rate_cvoid = -m_rate * cvoid
+    rate_cil = g_rate * (1.0 - cv / c_sat)
+    return rate_cv, rate_cvoid, rate_cil
+
+def calc_annealing_transfers(cv, cil, fraction, r_void, r_il, r_vl):
+    """Calculates reacting fractions and checks physical bounds for annealing."""
+    reacting_cv = cv * fraction
+    cv_to_void = reacting_cv * r_void
+    cv_to_il = reacting_cv * r_il
+    cv_to_vl = reacting_cv * r_vl
+
+    if np.any(cv_to_il > cil):
+        raise ValueError("Insufficient interstitial loops for recombination.")
+
+    return reacting_cv, cv_to_void, cv_to_il, cv_to_vl

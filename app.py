@@ -2,42 +2,15 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ---------------------------------------------------------
-# UI Configuration & State Initialization
-# ---------------------------------------------------------
+from physics import L, s
+from solver import setup_grid, run_irradiation, run_annealing
+
 st.set_page_config(page_title="Irradiation Creep Simulation", layout="wide")
 
 if "stages" not in st.session_state:
     st.session_state.stages = [
         {"type": "irradiation", "dpa": 0.5, "stress": 1000.0}
     ]
-
-# ---------------------------------------------------------
-# Global Parameters
-# ---------------------------------------------------------
-E = 410000.0         # Young's modulus for Tungsten (MPa)
-L = 15.0             # Wire length (mm)
-r = 8.0              # Equivalent wire radius (µm)
-A = np.pi * r**2     # Cross-sectional area (µm^2)
-s = np.sqrt(A)       # Square side length (µm)
-
-g_rate = 0.1         # Defect creation rate (/dpa)
-c_sat = 0.003        # Saturation concentration (atomic fraction)
-Omega_v = -0.3       # Vacancy relaxation volume
-Omega_il = 1.0       # Interstitial loop relaxation volume
-Omega_vl = -1.0      # Vacancy loop relaxation volume
-m_rate = 100.0       # Void melting rate (/dpa)
-
-# ---------------------------------------------------------
-# Math Helpers
-# ---------------------------------------------------------
-def get_Omega_tilde_zz(sigma_local):
-    alpha = (np.pi / 3) * np.tanh(-0.8 * sigma_local / 1000.0)
-    alpha_clip = np.clip(alpha + np.arccos(1 / np.sqrt(3)), 0, np.pi / 2)
-    nz = np.cos(alpha_clip)
-    nxy = np.sin(alpha_clip) / np.sqrt(2)
-    trace = nz + 2 * nxy
-    return np.where(trace != 0, nz / trace, 0.0)
 
 # ---------------------------------------------------------
 # Sidebar Layout: Stage Management
@@ -62,7 +35,6 @@ if st.sidebar.button("Remove Last Stage", use_container_width=True):
 st.sidebar.markdown("---")
 st.sidebar.subheader("Sequence Configuration")
 
-# Dynamic UI for editing stages
 for idx, stage in enumerate(st.session_state.stages):
     st.sidebar.markdown(f"**Stage {idx + 1}: {stage['type'].capitalize()}**")
     if stage["type"] == "irradiation":
@@ -81,7 +53,7 @@ for idx, stage in enumerate(st.session_state.stages):
     st.sidebar.markdown("---")
 
 # ---------------------------------------------------------
-# Main Layout: Tabs
+# Main Layout
 # ---------------------------------------------------------
 tab_sim, tab_settings = st.tabs(["Simulation", "Runtime Settings"])
 
@@ -99,98 +71,32 @@ with tab_sim:
         max_depth = float(np.round(s, 2))
         w_irr = st.slider("Heaviside Depth (µm)", min_value=0.0, max_value=max_depth, value=2.0)
 
-    # Setup Grid
-    x_arr = np.linspace(0, s, Nx)
-    z_arr = np.linspace(-L/2, L/2, Nz)
-    X, Z = np.meshgrid(x_arr, z_arr, indexing='ij')
+    # Initialize Grid & State
+    state, dose_rate_2D = setup_grid(Nx, Nz, L, s, fwhm, w_irr)
 
-    # Calculate Profile
-    f_X = np.where(X <= w_irr, 1.0, 0.0)
-    a_param = 2.0 * np.sqrt(np.log(2)) / fwhm
-    g_Z = np.exp(-a_param**2 * Z**2)
-    
-    dose_rate_2D = f_X * g_Z
-    max_dose = np.max(dose_rate_2D)
-    if max_dose > 0:
-        dose_rate_2D /= max_dose
-
-    # Initialize State
-    state = {
-        'cv': np.zeros_like(X),
-        'cil': np.zeros_like(X),
-        'cvl': np.zeros_like(X),
-        'cvoid': np.zeros_like(X),
-        'eps_v_zz': np.zeros_like(X),
-        'eps_il_zz': np.zeros_like(X),
-        'eps_vl_zz': np.zeros_like(X),
-        'eps_tot_zz': np.zeros_like(X)
-    }
-
-    # Simulation Execution
     phi_current = 0.0
     phi_plot = []
     sig_plot = []
     annealing_markers = []
 
+    # Execute Stages
     for idx, stage in enumerate(st.session_state.stages):
         if stage["type"] == "irradiation":
-            phi_start = phi_current
-            phi_end = phi_start + stage["dpa"]
-            sigma_ext_initial = stage["stress"]
+            phi_current, p_hist, s_hist = run_irradiation(
+                state, dose_rate_2D, phi_current, stage["dpa"], stage["stress"], N_steps
+            )
+            phi_plot.extend(p_hist)
+            sig_plot.extend(s_hist)
             
-            eps_tot_fixed = sigma_ext_initial / E + np.mean(state['eps_tot_zz'])
-            dphi_nom = (phi_end - phi_start) / N_steps
-            
-            for step in range(N_steps):
-                dphi_local = dphi_nom * dose_rate_2D
-                sigma_local = E * (eps_tot_fixed - state['eps_tot_zz'])
-                
-                rate_cv = g_rate * (1.0 - state['cv'] / c_sat) + m_rate * state['cvoid']
-                rate_cvoid = -m_rate * state['cvoid']
-                rate_cil = g_rate * (1.0 - state['cv'] / c_sat)
-                
-                state['cv'] += rate_cv * dphi_local
-                state['cvoid'] += rate_cvoid * dphi_local
-                state['cil'] += rate_cil * dphi_local
-                
-                state['eps_v_zz'] = (1.0 / 3.0) * Omega_v * state['cv']
-                Om_tilde_zz = get_Omega_tilde_zz(sigma_local)
-                state['eps_il_zz'] += Omega_il * Om_tilde_zz * (rate_cil * dphi_local)
-                
-                state['eps_tot_zz'] = state['eps_v_zz'] + state['eps_il_zz'] + state['eps_vl_zz']
-                sigma_ext_current = E * (eps_tot_fixed - np.mean(state['eps_tot_zz']))
-                
-                phi_current += dphi_nom
-                phi_plot.append(phi_current)
-                sig_plot.append(sigma_ext_current)
-                
         elif stage["type"] == "annealing":
-            reacting_cv = state['cv'] * stage["fraction"]
-            cv_to_void = reacting_cv * stage["r_void"]
-            cv_to_il = reacting_cv * stage["r_il"]
-            cv_to_vl = reacting_cv * stage["r_vl"]
-
-            if np.any(cv_to_il > state['cil']):
-                st.error(f"Stage {idx+1}: Insufficient interstitial loops for recombination.")
+            try:
+                run_annealing(state, stage["fraction"], stage["r_void"], stage["r_il"], stage["r_vl"])
+                annealing_markers.append(phi_current)
+            except ValueError as e:
+                st.error(f"Stage {idx+1}: {str(e)}")
                 st.stop()
 
-            scale_il = np.where(state['cil'] > 0, (state['cil'] - cv_to_il) / state['cil'], 0.0)
-            state['eps_il_zz'] *= scale_il
-
-            Om_tilde_vl_zero_zz = get_Omega_tilde_zz(np.zeros_like(state['cv']))
-            state['eps_vl_zz'] += Omega_vl * cv_to_vl * Om_tilde_vl_zero_zz
-
-            state['cv'] -= reacting_cv
-            state['cvoid'] += cv_to_void
-            state['cil'] -= cv_to_il
-            state['cvl'] += cv_to_vl
-
-            state['eps_v_zz'] = (1.0 / 3.0) * Omega_v * state['cv']
-            state['eps_tot_zz'] = state['eps_v_zz'] + state['eps_il_zz'] + state['eps_vl_zz']
-            
-            annealing_markers.append(phi_current)
-
-    # Plotting
+    # Plot Results
     if len(phi_plot) > 0:
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(phi_plot, sig_plot, color='navy', lw=2)
@@ -206,5 +112,3 @@ with tab_sim:
         st.pyplot(fig)
     else:
         st.info("Add an irradiation stage to view the simulation plot.")
-
-

@@ -9,18 +9,16 @@
   </head>
   <body>
     <div id="root"></div>
-    
-    <!-- The script MUST be declared as a module -->
     <script type="module">
-      // Import the mount function directly from the CDN
       import { mount } from "https://cdn.jsdelivr.net/npm/@stlite/browser/build/stlite.js";
       
       mount({
         requirements: ["numpy", "matplotlib"],
         entrypoint: "app.py",
         files: {
-          // This tells Stlite to fetch your separate app.py file from the repository
-          "app.py": { url: "./app.py" }
+          "app.py": { url: "./app.py" },
+          "physics.py": { url: "./physics.py" },
+          "solver.py": { url: "./solver.py" }
         }
       }, document.getElementById("root"));
     </script>

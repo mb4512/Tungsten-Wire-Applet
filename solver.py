@@ -54,6 +54,11 @@ class TungstenWire:
         eps_tot_fixed = sigma_ext_initial / self.mat.E + np.mean(self.eps_tot_zz)
         dphi_nom = (phi_end - phi_start) / N_steps
         
+        # Record the initial state of this irradiation phase 
+        # (This captures the zero-dose point and instantaneous grip resets)
+        self.phi_plot.append(self.phi_current)
+        self.sig_plot.append(sigma_ext_initial)
+        
         for _ in range(N_steps):
             dphi_local = dphi_nom * self.dose_rate_2D
             sigma_local = self.mat.E * (eps_tot_fixed - self.eps_tot_zz)

@@ -9,7 +9,7 @@ st.set_page_config(page_title="Irradiation Creep Simulation", layout="wide")
 
 if "stages" not in st.session_state:
     st.session_state.stages = [
-        {"type": "irradiation", "dpa": 0.5, "stress": 1000.0}
+        {"type": "irradiation", "dpa": 1.0, "stress": 1000.0}
     ]
 
 # ---------------------------------------------------------
@@ -20,11 +20,34 @@ st.sidebar.header("Stage Management")
 col1, col2 = st.sidebar.columns(2)
 with col1:
     if st.button("Add Irradiation"):
-        st.session_state.stages.append({"type": "irradiation", "dpa": 0.5, "stress": 1000.0})
+        # Find the last irradiation stage to inherit values, or use defaults
+        last_irr = next((s for s in reversed(st.session_state.stages) if s["type"] == "irradiation"), None)
+        if last_irr:
+            st.session_state.stages.append({"type": "irradiation", "dpa": last_irr["dpa"], "stress": last_irr["stress"]})
+        else:
+            st.session_state.stages.append({"type": "irradiation", "dpa": 1.0, "stress": 1000.0})
         st.rerun()
+
 with col2:
     if st.button("Add Annealing"):
-        st.session_state.stages.append({"type": "annealing", "fraction": 0.9, "r_void": 0.5, "r_il": 0.5, "r_vl": 0.0})
+        # Find the last annealing stage to inherit values, or use defaults
+        last_ann = next((s for s in reversed(st.session_state.stages) if s["type"] == "annealing"), None)
+        if last_ann:
+            st.session_state.stages.append({
+                "type": "annealing", 
+                "fraction": last_ann["fraction"], 
+                "r_void": last_ann["r_void"], 
+                "r_il": last_ann["r_il"], 
+                "r_vl": last_ann["r_vl"]
+            })
+        else:
+            st.session_state.stages.append({
+                "type": "annealing", 
+                "fraction": 0.9, 
+                "r_void": 0.2, 
+                "r_il": 0.8, 
+                "r_vl": 0.0
+            })
         st.rerun()
 
 if st.sidebar.button("Remove Last Stage", use_container_width=True):
@@ -55,7 +78,9 @@ for idx, stage in enumerate(st.session_state.stages):
 # ---------------------------------------------------------
 # Main Layout
 # ---------------------------------------------------------
-tab_sim, tab_materials, tab_settings = st.tabs(["Simulation", "Material Constants", "Runtime Settings"])
+tab_sim, tab_beam, tab_materials, tab_settings = st.tabs([
+    "Simulation", "Beam Settings", "Material Constants", "Runtime Settings"
+])
 
 with tab_settings:
     st.subheader("Grid Resolution")
@@ -65,23 +90,26 @@ with tab_settings:
 
 with tab_materials:
     st.subheader("Material & Defect Properties")
-    mat_E = st.number_input("Young's modulus E (MPa)", value=410000.0, step=1000.0)
-    mat_g_rate = st.number_input("Defect creation rate (/dpa)", value=0.1, format="%.3f")
+    mat_E_GPa = st.number_input("Young's modulus E (GPa)", value=410.0, step=1.0)
+    mat_E = mat_E_GPa * 1000.0  # Convert to MPa for internal consistency
+    
+    mat_g_rate = st.number_input("Defect creation rate (atomic fraction/dpa)", value=0.1, format="%.3f")
     mat_c_sat = st.number_input("Saturation concentration c_sat (atomic fraction)", value=0.003, format="%.4f")
-    mat_Omega_v = st.number_input("Vacancy relaxation volume", value=-0.3, format="%.2f")
-    mat_Omega_il = st.number_input("Interstitial loop relaxation volume", value=1.0, format="%.2f")
-    mat_Omega_vl = st.number_input("Vacancy loop relaxation volume", value=-1.0, format="%.2f")
-    mat_m_rate = st.number_input("Void melting rate (/dpa)", value=100.0, format="%.1f")
+    mat_Omega_v = st.number_input("Vacancy relaxation volume (atomic volumes)", value=-0.3, format="%.2f")
+    mat_Omega_il = st.number_input("Interstitial loop relaxation volume (atomic volumes)", value=1.0, format="%.2f")
+    mat_Omega_vl = st.number_input("Vacancy loop relaxation volume (atomic volumes)", value=-1.0, format="%.2f")
+    mat_m_rate = st.number_input("Void melting rate (atomic fraction/dpa)", value=100.0, format="%.1f")
 
-with tab_sim:
+with tab_beam:
+    st.subheader("Irradiation Beam Profiles")
     col_prof1, col_prof2 = st.columns(2)
     with col_prof1:
         fwhm = st.slider("Beam Gaussian FWHM (mm)", min_value=0.1, max_value=15.0, value=2.0)
     with col_prof2:
-        # Access the bounding dimension directly from the TungstenWire class
         max_depth = float(np.round(TungstenWire.s, 2))
         w_irr = st.slider("Heaviside Depth (µm)", min_value=0.0, max_value=max_depth, value=2.0)
 
+with tab_sim:
     def current_profile_f_x(x):
         return np.where(x <= w_irr, 1.0, 0.0)
 

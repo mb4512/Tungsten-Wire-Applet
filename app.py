@@ -10,11 +10,13 @@ from beam import BeamProfiles
 
 st.set_page_config(page_title="Irradiation Creep Simulation", layout="wide")
 
+MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB
+
 # ---------------------------------------------------------
 # Synchronized Slider & Input Helper
 # ---------------------------------------------------------
-def synced_slider(label, min_val, max_val, current_val, step, key_base):
-    col1, col2 = st.columns(2)
+def synced_slider(label, min_val, max_val, current_val, step, key_base, container=st):
+    col1, col2 = container.columns(2)
     
     def sync(source, target):
         st.session_state[target] = st.session_state[source]
@@ -136,6 +138,13 @@ def remove_last_stage():
 def load_config_callback():
     file = st.session_state.get("config_file_uploader")
     if file is not None:
+        if file.size > MAX_FILE_SIZE_BYTES:
+            st.session_state["config_load_status"] = (
+                "error",
+                f"File size exceeds 1 MB limit ({file.size / 1024:.1f} KB provided)."
+            )
+            return
+
         try:
             apply_config(json.load(file))
             st.session_state["config_load_status"] = ("success", "Configuration loaded successfully.")
@@ -216,7 +225,9 @@ for idx, stage in enumerate(st.session_state.stages):
         stage["dpa"] = st.sidebar.number_input(f"Duration (dpa)", min_value=0.01, value=stage["dpa"], key=f"dpa_{stage['id']}")
         stage["stress"] = st.sidebar.number_input(f"Initial Stress (MPa)", value=stage["stress"], key=f"str_{stage['id']}")
     else:
-        stage["fraction"] = synced_slider("Reacting Fraction", 0.0, 1.0, stage["fraction"], 0.01, f"f_{stage['id']}")
+        stage["fraction"] = synced_slider(
+            "Reacting Fraction", 0.0, 1.0, stage["fraction"], 0.01, f"f_{stage['id']}", container=st.sidebar
+        )
         stage["r_void"] = st.sidebar.number_input("Ratio to Voids", 0.0, 1.0, stage["r_void"], key=f"rv_{stage['id']}")
         stage["r_il"] = st.sidebar.number_input("Ratio to Int. Loops", 0.0, 1.0, stage["r_il"], key=f"ri_{stage['id']}")
         stage["r_vl"] = st.sidebar.number_input("Ratio to Vac. Loops", 0.0, 1.0, stage["r_vl"], key=f"rvl_{stage['id']}")
@@ -308,7 +319,8 @@ with tab_beam:
             max_val=float(p["max"]), 
             current_val=float(cur_val), 
             step=float(p.get("step", 0.05)),
-            key_base=f"lat_param_{lat_type}_{p['id']}"
+            key_base=f"lat_param_{lat_type}_{p['id']}",
+            container=st
         )
         st.session_state.beam_params["lat"][lat_type][p["id"]] = val
         lat_kwargs[p["id"]] = val
@@ -351,7 +363,8 @@ with tab_beam:
             max_val=max_v, 
             current_val=float(cur_val), 
             step=float(p.get("step", 0.01)),
-            key_base=f"dep_param_{dep_type}_{p['id']}"
+            key_base=f"dep_param_{dep_type}_{p['id']}",
+            container=st
         )
         st.session_state.beam_params["dep"][dep_type][p["id"]] = val
         dep_kwargs[p["id"]] = val

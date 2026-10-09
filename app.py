@@ -2,7 +2,8 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-from physics import MaterialConstants
+# Added get_Omega_tilde_zz to the imports for the analytical plot
+from physics import MaterialConstants, get_Omega_tilde_zz
 from solver import TungstenWire
 from beam import BeamProfiles
 
@@ -91,7 +92,7 @@ for idx, stage in enumerate(st.session_state.stages):
 # Main Layout
 # ---------------------------------------------------------
 tab_sim, tab_beam, tab_materials, tab_settings = st.tabs([
-    "Simulation", "Beam Settings", "Material Constants", "Runtime Settings"
+    "Simulation", "Beam Settings", "Material settings", "Runtime Settings"
 ])
 
 with tab_settings:
@@ -118,6 +119,41 @@ with tab_materials:
         index=0,
         help="'fixed': retains the zero-stress [111] orientation generated during annealing. 'adaptive': instantly adjusts to the new applied stress upon further irradiation."
     )
+
+    st.markdown("---")
+    st.subheader("Illustrative Eigenstrain Evolution")
+    st.markdown("Analytical evolution of $\\varepsilon_{zz}^{*,tot}$ for an initially pristine microstructure under constant uniaxial stress.")
+
+    # Analytical plotting logic for 0 to 0.7 dpa
+    phi_plot_0d = np.linspace(0, 0.7, 200)
+    
+    # Calculate analytical concentration
+    if mat_c_sat > 0:
+        cv_plot_0d = mat_c_sat * (1 - np.exp(-mat_g_rate * phi_plot_0d / mat_c_sat))
+    else:
+        cv_plot_0d = mat_g_rate * phi_plot_0d
+        
+    eps_v_zz_0d = (1.0 / 3.0) * mat_Omega_v * cv_plot_0d
+    
+    fig_mat, ax_mat = plt.subplots(figsize=(8, 4))
+    
+    # Stress levels from -1000 MPa to 2000 MPa in steps of 500
+    stresses_MPa = np.arange(-1000.0, 2001.0, 500.0)
+    for sig in stresses_MPa:
+        Om_zz_0d = get_Omega_tilde_zz(sig)
+        eps_il_zz_0d = mat_Omega_il * Om_zz_0d * cv_plot_0d
+        eps_tot_zz_0d = eps_v_zz_0d + eps_il_zz_0d
+        ax_mat.plot(phi_plot_0d, eps_tot_zz_0d, label=f"{sig/1000.0:g} GPa")
+        
+    ax_mat.set_xlabel("Dose (dpa)")
+    ax_mat.set_ylabel(r"Total Eigenstrain $\varepsilon_{zz}^{*,tot}$")
+    ax_mat.grid(True, linestyle='--', alpha=0.6)
+    
+    # Move legend outside the plot area
+    ax_mat.legend(title="Applied Stress", bbox_to_anchor=(1.05, 1), loc='upper left')
+    fig_mat.tight_layout()
+    
+    st.pyplot(fig_mat)
 
 with tab_beam:
     st.subheader("Lateral Profile (z-direction)")

@@ -179,7 +179,12 @@ col1, col2 = st.sidebar.columns(2)
 with col1:
     st.button("Add Irradiation", on_click=add_irradiation)
 with col2:
-    st.button("Add Annealing", on_click=add_annealing)
+    # Greys out button when no stages exist
+    st.button(
+        "Add Annealing", 
+        on_click=add_annealing, 
+        disabled=(len(st.session_state.stages) == 0)
+    )
 
 st.sidebar.button("Remove Last Stage", on_click=remove_last_stage, use_container_width=True)
 
@@ -214,14 +219,18 @@ with st.sidebar.expander("Save / Load Configuration", expanded=False):
     }
     
     export_json_name = st.text_input("Export file name", value="simulation_config.json")
-    if not export_json_name.strip().endswith(".json"):
-        export_json_name = f"{export_json_name.strip()}.json"
+    clean_json_name = export_json_name.strip()
+    if not clean_json_name.lower().endswith(".json"):
+        clean_json_name = f"{clean_json_name}.json"
+    if not clean_json_name or clean_json_name == ".json":
+        clean_json_name = "simulation_config.json"
 
     st.download_button(
         label="Export Settings to JSON",
         data=json.dumps(export_payload, indent=2),
-        file_name=export_json_name,
+        file_name=clean_json_name,
         mime="application/json",
+        key=f"dl_json_{clean_json_name}",
         use_container_width=True
     )
     
@@ -459,7 +468,7 @@ with tab_sim:
                 st.stop()
 
     if len(wire.phi_plot) > 0:
-        ctrl_col1, ctrl_col2 = st.columns([2, 1])
+        ctrl_col1, ctrl_col2 = st.columns([1.5, 1.5])
         with ctrl_col1:
             stress_mode = st.radio(
                 "Stress Display Mode",
@@ -468,6 +477,13 @@ with tab_sim:
             )
         
         with ctrl_col2:
+            export_csv_name = st.text_input("CSV export file name", value="stress_relaxation_data.csv")
+            clean_csv_name = export_csv_name.strip()
+            if not clean_csv_name.lower().endswith(".csv"):
+                clean_csv_name = f"{clean_csv_name}.csv"
+            if not clean_csv_name or clean_csv_name == ".csv":
+                clean_csv_name = "stress_relaxation_data.csv"
+
             csv_buf = io.StringIO()
             csv_writer = csv.writer(csv_buf)
             csv_writer.writerow([
@@ -481,8 +497,9 @@ with tab_sim:
             st.download_button(
                 label="Export Stress Curve (CSV)",
                 data=csv_buf.getvalue(),
-                file_name="stress_relaxation_data.csv",
+                file_name=clean_csv_name,
                 mime="text/csv",
+                key=f"dl_csv_{clean_csv_name}",
                 use_container_width=True
             )
 

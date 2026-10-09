@@ -1,17 +1,55 @@
+import uuid
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Added get_Omega_tilde_zz to the imports for the analytical plot
 from physics import MaterialConstants, get_Omega_tilde_zz
 from solver import TungstenWire
 from beam import BeamProfiles
 
 st.set_page_config(page_title="Irradiation Creep Simulation", layout="wide")
 
+# ---------------------------------------------------------
+# Synchronized Slider & Input Helper
+# ---------------------------------------------------------
+def synced_slider(label, min_val, max_val, current_val, step, key_base):
+    """Renders a 50/50 width slider and number input bound to the same state."""
+    col1, col2 = st.columns(2)
+    
+    def sync(source, target):
+        st.session_state[target] = st.session_state[source]
+        
+    slider_key = f"{key_base}_slider"
+    num_key = f"{key_base}_num"
+    
+    if slider_key not in st.session_state:
+        st.session_state[slider_key] = current_val
+    if num_key not in st.session_state:
+        st.session_state[num_key] = current_val
+        
+    with col1:
+        st.slider(
+            label, min_value=min_val, max_value=max_val, 
+            value=st.session_state[slider_key], step=step, 
+            key=slider_key, on_change=sync, args=(slider_key, num_key)
+        )
+    with col2:
+        # label_visibility="hidden" preserves alignment wrapping space
+        st.number_input(
+            label, min_value=min_val, max_value=max_val, 
+            value=st.session_state[num_key], step=step, 
+            key=num_key, label_visibility="hidden", 
+            on_change=sync, args=(num_key, slider_key)
+        )
+        
+    return st.session_state[slider_key]
+
+# ---------------------------------------------------------
+# Initialization
+# ---------------------------------------------------------
 if "stages" not in st.session_state:
     st.session_state.stages = [
-        {"type": "irradiation", "dpa": 1.0, "stress": 1000.0}
+        {"id": uuid.uuid4().hex, "type": "irradiation", "dpa": 1.0, "stress": 1000.0}
     ]
 
 # Persistent store for profile parameters so state is preserved when switching shapes
@@ -28,14 +66,15 @@ if "beam_params" not in st.session_state:
 def add_irradiation():
     last_irr = next((s for s in reversed(st.session_state.stages) if s["type"] == "irradiation"), None)
     if last_irr:
-        st.session_state.stages.append({"type": "irradiation", "dpa": last_irr["dpa"], "stress": last_irr["stress"]})
+        st.session_state.stages.append({"id": uuid.uuid4().hex, "type": "irradiation", "dpa": last_irr["dpa"], "stress": last_irr["stress"]})
     else:
-        st.session_state.stages.append({"type": "irradiation", "dpa": 1.0, "stress": 1000.0})
+        st.session_state.stages.append({"id": uuid.uuid4().hex, "type": "irradiation", "dpa": 1.0, "stress": 1000.0})
 
 def add_annealing():
     last_ann = next((s for s in reversed(st.session_state.stages) if s["type"] == "annealing"), None)
     if last_ann:
         st.session_state.stages.append({
+            "id": uuid.uuid4().hex,
             "type": "annealing", 
             "fraction": last_ann["fraction"], 
             "r_void": last_ann["r_void"], 
@@ -44,6 +83,7 @@ def add_annealing():
         })
     else:
         st.session_state.stages.append({
+            "id": uuid.uuid4().hex,
             "type": "annealing", 
             "fraction": 0.9, 
             "r_void": 0.2, 
@@ -53,7 +93,12 @@ def add_annealing():
 
 def remove_last_stage():
     if len(st.session_state.stages) > 0:
-        st.session_state.stages.pop()
+        removed = st.session_state.stages.pop()
+        s_id = removed["id"]
+        # Wipe the session state traces of the removed stage
+        keys_to_delete = [k for k in st.session_state.keys() if s_id in k]
+        for k in keys_to_delete:
+            del st.session_state[k]
 
 # ---------------------------------------------------------
 # Sidebar Layout: Stage Management
@@ -74,13 +119,13 @@ st.sidebar.subheader("Sequence Configuration")
 for idx, stage in enumerate(st.session_state.stages):
     st.sidebar.markdown(f"**Stage {idx + 1}: {stage['type'].capitalize()}**")
     if stage["type"] == "irradiation":
-        stage["dpa"] = st.sidebar.number_input(f"Duration (dpa)", min_value=0.01, value=stage["dpa"], key=f"dpa_{idx}")
-        stage["stress"] = st.sidebar.number_input(f"Initial Stress (MPa)", value=stage["stress"], key=f"str_{idx}")
+        stage["dpa"] = st.sidebar.number_input(f"Duration (dpa)", min_value=0.01, value=stage["dpa"], key=f"dpa_{stage['id']}")
+        stage["stress"] = st.sidebar.number_input(f"Initial Stress (MPa)", value=stage["stress"], key=f"str_{stage['id']}")
     else:
-        stage["fraction"] = st.sidebar.slider("Reacting Fraction", 0.0, 1.0, stage["fraction"], key=f"f_{idx}")
-        stage["r_void"] = st.sidebar.number_input("Ratio to Voids", 0.0, 1.0, stage["r_void"], key=f"rv_{idx}")
-        stage["r_il"] = st.sidebar.number_input("Ratio to Int. Loops", 0.0, 1.0, stage["r_il"], key=f"ri_{idx}")
-        stage["r_vl"] = st.sidebar.number_input("Ratio to Vac. Loops", 0.0, 1.0, stage["r_vl"], key=f"rvl_{idx}")
+        stage["fraction"] = synced_slider("Reacting Fraction", 0.0, 1.0, stage["fraction"], 0.01, f"f_{stage['id']}")
+        stage["r_void"] = st.sidebar.number_input("Ratio to Voids", 0.0, 1.0, stage["r_void"], key=f"rv_{stage['id']}")
+        stage["r_il"] = st.sidebar.number_input("Ratio to Int. Loops", 0.0, 1.0, stage["r_il"], key=f"ri_{stage['id']}")
+        stage["r_vl"] = st.sidebar.number_input("Ratio to Vac. Loops", 0.0, 1.0, stage["r_vl"], key=f"rvl_{stage['id']}")
         
         total_ratio = stage["r_void"] + stage["r_il"] + stage["r_vl"]
         if not np.isclose(total_ratio, 1.0) and stage["fraction"] > 0:
@@ -107,7 +152,7 @@ with tab_materials:
     mat_E = mat_E_GPa * 1000.0  
     
     mat_g_rate = st.number_input("Defect creation rate (atomic fraction/dpa)", value=0.1, format="%.3f")
-    mat_c_sat = st.number_input("Saturation concentration c_sat (atomic fraction)", value=0.003, format="%.4f")
+    mat_c_sat = st.number_input("Vacancy saturation concentration (atomic fraction)", value=0.003, format="%.4f")
     mat_Omega_v = st.number_input("Vacancy relaxation volume (atomic volumes)", value=-0.3, format="%.2f")
     mat_Omega_il = st.number_input("Interstitial loop relaxation volume (atomic volumes)", value=1.0, format="%.2f")
     mat_Omega_vl = st.number_input("Vacancy loop relaxation volume (atomic volumes)", value=-1.0, format="%.2f")
@@ -124,10 +169,8 @@ with tab_materials:
     st.subheader("Illustrative Eigenstrain Evolution")
     st.markdown("Analytical evolution of $\\varepsilon_{zz}^{*,tot}$ for an initially pristine microstructure under constant uniaxial stress.")
 
-    # Analytical plotting logic for 0 to 0.7 dpa
     phi_plot_0d = np.linspace(0, 0.7, 200)
     
-    # Calculate analytical concentration
     if mat_c_sat > 0:
         cv_plot_0d = mat_c_sat * (1 - np.exp(-mat_g_rate * phi_plot_0d / mat_c_sat))
     else:
@@ -137,7 +180,6 @@ with tab_materials:
     
     fig_mat, ax_mat = plt.subplots(figsize=(8, 4))
     
-    # Stress levels from -1000 MPa to 2000 MPa in steps of 500
     stresses_MPa = np.arange(-1000.0, 2001.0, 500.0)
     for sig in stresses_MPa:
         Om_zz_0d = get_Omega_tilde_zz(sig)
@@ -149,7 +191,6 @@ with tab_materials:
     ax_mat.set_ylabel(r"Total Eigenstrain $\varepsilon_{zz}^{*,tot}$")
     ax_mat.grid(True, linestyle='--', alpha=0.6)
     
-    # Move legend outside the plot area
     ax_mat.legend(title="Applied Stress", bbox_to_anchor=(1.05, 1), loc='upper left')
     fig_mat.tight_layout()
     
@@ -159,23 +200,23 @@ with tab_beam:
     st.subheader("Lateral Profile (z-direction)")
     
     lat_opts = list(BeamProfiles.LATERAL.keys())
-    lat_type = st.selectbox("Lateral Profile Shape", options=lat_opts, key="lat_profile_shape")
+    lat_default_idx = lat_opts.index("Flat/Rastered") if "Flat/Rastered" in lat_opts else 0
+    lat_type = st.selectbox("Lateral Profile Shape", options=lat_opts, index=lat_default_idx, key="lat_profile_shape")
     
     lat_kwargs = {}
     for p in BeamProfiles.LATERAL[lat_type]["params"]:
         cur_val = st.session_state.beam_params["lat"][lat_type].get(p["id"], p["default"])
-        val = st.slider(
-            p["label"], 
-            min_value=float(p["min"]), 
-            max_value=float(p["max"]), 
-            value=float(cur_val), 
+        val = synced_slider(
+            label=p["label"], 
+            min_val=float(p["min"]), 
+            max_val=float(p["max"]), 
+            current_val=float(cur_val), 
             step=float(p.get("step", 0.05)),
-            key=f"lat_param_{lat_type}_{p['id']}"
+            key_base=f"lat_param_{lat_type}_{p['id']}"
         )
         st.session_state.beam_params["lat"][lat_type][p["id"]] = val
         lat_kwargs[p["id"]] = val
 
-    # Lateral profile comparison plot
     z_plot = np.linspace(-TungstenWire.L/2, TungstenWire.L/2, 500)
     fig_lat, ax_lat = plt.subplots(figsize=(8, 3))
     
@@ -200,24 +241,24 @@ with tab_beam:
     st.subheader("Depth Profile (x-direction)")
     
     dep_opts = list(BeamProfiles.DEPTH.keys())
-    dep_type = st.selectbox("Depth Profile Shape", options=dep_opts, key="dep_profile_shape")
+    dep_default_idx = dep_opts.index("Parametric Bragg Peak") if "Parametric Bragg Peak" in dep_opts else 0
+    dep_type = st.selectbox("Depth Profile Shape", options=dep_opts, index=dep_default_idx, key="dep_profile_shape")
     
     dep_kwargs = {}
     for p in BeamProfiles.DEPTH[dep_type]["params"]:
         max_v = float(p["max"]) if p["max"] is not None else float(np.round(TungstenWire.s, 2))
         cur_val = st.session_state.beam_params["dep"][dep_type].get(p["id"], p["default"])
-        val = st.slider(
-            p["label"], 
-            min_value=float(p["min"]), 
-            max_value=max_v, 
-            value=float(cur_val),
+        val = synced_slider(
+            label=p["label"], 
+            min_val=float(p["min"]), 
+            max_val=max_v, 
+            current_val=float(cur_val),
             step=float(p.get("step", 0.01)),
-            key=f"dep_param_{dep_type}_{p['id']}"
+            key_base=f"dep_param_{dep_type}_{p['id']}"
         )
         st.session_state.beam_params["dep"][dep_type][p["id"]] = val
         dep_kwargs[p["id"]] = val
 
-    # Depth profile comparison plot
     if dep_type == "Parametric Bragg Peak":
         needed_x = dep_kwargs.get("x_peak", 1.3) + 1.0
     else:
@@ -237,7 +278,7 @@ with tab_beam:
         else:
             ax_dep.plot(x_plot, profile_vals, color='blue', lw=1.5, alpha=0.5, label=f'{name} (Inactive)')
             
-    ax_dep.set_xlabel("x position across wire depth (µm)")
+    ax_dep.set_xlabel("depth into the wire (µm)")
     ax_dep.set_ylabel("Normalized Dose Rate")
     ax_dep.set_title("Depth Beam Profile $f(x)$")
     ax_dep.grid(True, linestyle='--', alpha=0.6)

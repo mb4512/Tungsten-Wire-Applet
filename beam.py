@@ -38,7 +38,7 @@ class BeamProfiles:
         },
         "Flat/Rastered": {
             "params": [
-                {"id": "width", "label": "Rastered Width (mm)", "min": 0.1, "max": 15.0, "default": 2.0, "step": 0.05}
+                {"id": "width", "label": "Rastered Width (mm)", "min": 0.1, "max": 15.0, "default": 4.0, "step": 0.05}
             ],
             "func": lambda kwargs: (
                 lambda z: np.where(np.abs(z) <= kwargs["width"] / 2.0, 1.0, 0.0)
@@ -57,10 +57,10 @@ class BeamProfiles:
         },
         "Parametric Bragg Peak": {
             "params": [
-                {"id": "x_peak", "label": "Bragg peak position (x_peak)", "min": 0.01, "max": 20.0, "default": 1.3, "step": 0.05},
-                {"id": "phi_0", "label": "Dose at surface (phi_0)", "min": 0.01, "max": 1.0, "default": 0.5, "step": 0.01},
-                {"id": "a", "label": "Curvature at surface (a, where c_3 = 10^a)", "min": 0.0, "max": 2.0, "default": 0.7, "step": 0.01},
-                {"id": "c_5", "label": "Curvature at Bragg peak (c_5)", "min": 0.001, "max": 2.0, "default": 0.2, "step": 0.01}
+                {"id": "x_peak", "label": "Bragg peak position (µm)", "min": 0.01, "max": 20.0, "default": 1.3, "step": 0.05},
+                {"id": "phi_0", "label": "dose at surface (rel. to Bragg peak)", "min": 0.01, "max": 1.0, "default": 0.5, "step": 0.01},
+                {"id": "a", "label": "Curvature at surface", "min": 0.0, "max": 2.0, "default": 0.7, "step": 0.01},
+                {"id": "c_5", "label": "Curvature at Bragg peak", "min": 0.001, "max": 2.0, "default": 0.2, "step": 0.01}
             ],
             "func": _calc_parametric_bragg
         }

@@ -13,6 +13,25 @@ st.set_page_config(page_title="Irradiation Creep Simulation", layout="wide")
 MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB
 
 # ---------------------------------------------------------
+# Custom Styling: Update File Uploader Caption to 1 MB
+# ---------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    [data-testid="stFileUploader"] section small {
+        font-size: 0px !important;
+    }
+    [data-testid="stFileUploader"] section small::after {
+        content: "Limit 1MB per file • JSON";
+        font-size: 12px !important;
+        display: block;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------
 # Synchronized Slider & Input Helper
 # ---------------------------------------------------------
 def synced_slider(label, min_val, max_val, current_val, step, key_base, container=st):
@@ -29,19 +48,17 @@ def synced_slider(label, min_val, max_val, current_val, step, key_base, containe
     if num_key not in st.session_state:
         st.session_state[num_key] = current_val
         
-    with col1:
-        st.slider(
-            label, min_value=min_val, max_value=max_val, 
-            value=st.session_state[slider_key], step=step, 
-            key=slider_key, on_change=sync, args=(slider_key, num_key)
-        )
-    with col2:
-        st.number_input(
-            label, min_value=min_val, max_value=max_val, 
-            value=st.session_state[num_key], step=step, 
-            key=num_key, label_visibility="hidden", 
-            on_change=sync, args=(num_key, slider_key)
-        )
+    col1.slider(
+        label, min_value=min_val, max_value=max_val, 
+        value=st.session_state[slider_key], step=step, 
+        key=slider_key, on_change=sync, args=(slider_key, num_key)
+    )
+    col2.number_input(
+        label, min_value=min_val, max_value=max_val, 
+        value=st.session_state[num_key], step=step, 
+        key=num_key, label_visibility="hidden", 
+        on_change=sync, args=(num_key, slider_key)
+    )
         
     return st.session_state[slider_key]
 
@@ -141,7 +158,7 @@ def load_config_callback():
         if file.size > MAX_FILE_SIZE_BYTES:
             st.session_state["config_load_status"] = (
                 "error",
-                f"File size exceeds 1 MB limit ({file.size / 1024:.1f} KB provided)."
+                f"File size exceeds 1 MB limit ({file.size / (1024 * 1024):.2f} MB provided)."
             )
             return
 
@@ -206,6 +223,7 @@ with st.sidebar.expander("Save / Load Configuration", expanded=False):
         label="Import Configuration (.json)",
         type=["json"],
         key="config_file_uploader",
+        help="Maximum allowed file size: 1 MB",
         on_change=load_config_callback
     )
     

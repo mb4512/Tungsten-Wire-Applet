@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import uuid
 import streamlit as st
@@ -211,10 +213,14 @@ with st.sidebar.expander("Save / Load Configuration", expanded=False):
         }
     }
     
+    export_json_name = st.text_input("Export file name", value="simulation_config.json")
+    if not export_json_name.strip().endswith(".json"):
+        export_json_name = f"{export_json_name.strip()}.json"
+
     st.download_button(
         label="Export Settings to JSON",
         data=json.dumps(export_payload, indent=2),
-        file_name="simulation_config.json",
+        file_name=export_json_name,
         mime="application/json",
         use_container_width=True
     )
@@ -453,15 +459,47 @@ with tab_sim:
                 st.stop()
 
     if len(wire.phi_plot) > 0:
+        ctrl_col1, ctrl_col2 = st.columns([2, 1])
+        with ctrl_col1:
+            stress_mode = st.radio(
+                "Stress Display Mode",
+                options=["Absolute Stress (MPa)", "Relative to Stage Initial Stress"],
+                horizontal=True
+            )
+        
+        with ctrl_col2:
+            csv_buf = io.StringIO()
+            csv_writer = csv.writer(csv_buf)
+            csv_writer.writerow([
+                "dose (dpa)",
+                "externally applied stress (MPa)",
+                "relative externally applied stress (unitless)"
+            ])
+            for dose_val, stress_val, rel_val in zip(wire.phi_plot, wire.sig_plot, wire.rel_sig_plot):
+                csv_writer.writerow([f"{dose_val:.6f}", f"{stress_val:.6f}", f"{rel_val:.6f}"])
+
+            st.download_button(
+                label="Export Stress Curve (CSV)",
+                data=csv_buf.getvalue(),
+                file_name="stress_relaxation_data.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        is_relative = stress_mode == "Relative to Stage Initial Stress"
+        y_vals = wire.rel_sig_plot if is_relative else wire.sig_plot
+        y_axis_label = "Relative Stress (-)" if is_relative else "Externally Applied Stress (MPa)"
+        chart_title = "Relative Stress Relaxation" if is_relative else "Macroscopic Stress Relaxation"
+
         fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(wire.phi_plot, wire.sig_plot, color='navy', lw=2)
+        ax.plot(wire.phi_plot, y_vals, color='navy', lw=2)
         
         for marker in wire.annealing_markers:
             ax.axvline(marker, color='red', linestyle='--', alpha=0.6)
             
-        ax.set_title('Macroscopic Stress Relaxation')
+        ax.set_title(chart_title)
         ax.set_xlabel('Nominal Beam Dose (dpa)')
-        ax.set_ylabel('Externally Applied Stress (MPa)')
+        ax.set_ylabel(y_axis_label)
         ax.grid(True, linestyle='--', alpha=0.6)
         
         st.pyplot(fig)

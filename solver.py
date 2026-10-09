@@ -45,6 +45,7 @@ class TungstenWire:
         self.phi_current = 0.0
         self.phi_plot = []
         self.sig_plot = []
+        self.rel_sig_plot = []
         self.annealing_markers = []
 
     def run_irradiation(self, dpa, sigma_ext_initial, N_steps):
@@ -55,14 +56,10 @@ class TungstenWire:
         
         # If adaptive mode is on, vacancy loops re-polarize instantly to the new applied stress
         if self.mat.vl_mode == 'adaptive' and np.any(self.cvl > 0):
-            # Calculate initial local stress before adaptation
             sigma_local_initial = self.mat.E * (eps_tot_fixed - self.eps_tot_zz)
-            # Vacancy loops orient based on opposite of applied stress
             Om_tilde_vl_zz = get_Omega_tilde_zz(-sigma_local_initial)
             self.eps_vl_zz = self.mat.Omega_vl * self.cvl * Om_tilde_vl_zz
-            # Update total eigenstrain with new VL contribution
             self.eps_tot_zz = self.eps_v_zz + self.eps_il_zz + self.eps_vl_zz
-            # Recalculate fixed total strain since mean eigenstrain changed
             eps_tot_fixed = sigma_ext_initial / self.mat.E + np.mean(self.eps_tot_zz)
 
         dphi_nom = (phi_end - phi_start) / N_steps
@@ -70,6 +67,8 @@ class TungstenWire:
         # Record the initial state of this irradiation phase 
         self.phi_plot.append(self.phi_current)
         self.sig_plot.append(sigma_ext_initial)
+        initial_rel = 1.0 if sigma_ext_initial != 0.0 else 0.0
+        self.rel_sig_plot.append(initial_rel)
         
         for _ in range(N_steps):
             dphi_local = dphi_nom * self.dose_rate_2D
@@ -94,6 +93,10 @@ class TungstenWire:
             self.phi_current += dphi_nom
             self.phi_plot.append(self.phi_current)
             self.sig_plot.append(sigma_ext_current)
+            rel_current = (
+                sigma_ext_current / sigma_ext_initial if sigma_ext_initial != 0.0 else 0.0
+            )
+            self.rel_sig_plot.append(rel_current)
 
     def run_annealing(self, fraction, r_void, r_il, r_vl):
         reacting_cv, cv_to_void, cv_to_il, cv_to_vl = calc_annealing_transfers(

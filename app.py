@@ -13,8 +13,16 @@ if "stages" not in st.session_state:
         {"type": "irradiation", "dpa": 1.0, "stress": 1000.0}
     ]
 
+# Persistent store for profile parameters so state is preserved when switching shapes
+if "beam_params" not in st.session_state:
+    st.session_state.beam_params = {"lat": {}, "dep": {}}
+    for name, cfg in BeamProfiles.LATERAL.items():
+        st.session_state.beam_params["lat"][name] = {p["id"]: p["default"] for p in cfg["params"]}
+    for name, cfg in BeamProfiles.DEPTH.items():
+        st.session_state.beam_params["dep"][name] = {p["id"]: p["default"] for p in cfg["params"]}
+
 # ---------------------------------------------------------
-# State Callbacks (Fixes the widget desync bug)
+# State Callbacks
 # ---------------------------------------------------------
 def add_irradiation():
     last_irr = next((s for s in reversed(st.session_state.stages) if s["type"] == "irradiation"), None)
@@ -119,13 +127,38 @@ with tab_beam:
     
     lat_kwargs = {}
     for p in BeamProfiles.LATERAL[lat_type]["params"]:
-        lat_kwargs[p["id"]] = st.slider(
+        cur_val = st.session_state.beam_params["lat"][lat_type].get(p["id"], p["default"])
+        val = st.slider(
             p["label"], 
-            min_value=p["min"], 
-            max_value=p["max"], 
-            value=p["default"], 
+            min_value=float(p["min"]), 
+            max_value=float(p["max"]), 
+            value=float(cur_val), 
+            step=float(p.get("step", 0.05)),
             key=f"lat_param_{lat_type}_{p['id']}"
         )
+        st.session_state.beam_params["lat"][lat_type][p["id"]] = val
+        lat_kwargs[p["id"]] = val
+
+    # Lateral profile comparison plot
+    z_plot = np.linspace(-TungstenWire.L/2, TungstenWire.L/2, 500)
+    fig_lat, ax_lat = plt.subplots(figsize=(8, 3))
+    
+    for name, config in BeamProfiles.LATERAL.items():
+        func_kwargs = st.session_state.beam_params["lat"][name]
+        func = config["func"](func_kwargs)
+        profile_vals = func(z_plot)
+        
+        if name == lat_type:
+            ax_lat.plot(z_plot, profile_vals, color='red', lw=3.0, label=f'{name} (Active)')
+        else:
+            ax_lat.plot(z_plot, profile_vals, color='blue', lw=1.5, alpha=0.5, label=f'{name} (Inactive)')
+            
+    ax_lat.set_xlabel("z position along wire (mm)")
+    ax_lat.set_ylabel("Normalized Dose Rate")
+    ax_lat.set_title("Lateral Beam Profile $g(z)$")
+    ax_lat.grid(True, linestyle='--', alpha=0.6)
+    ax_lat.legend(loc="upper right")
+    st.pyplot(fig_lat)
 
     st.markdown("---")
     st.subheader("Depth Profile (x-direction)")
@@ -135,39 +168,45 @@ with tab_beam:
     
     dep_kwargs = {}
     for p in BeamProfiles.DEPTH[dep_type]["params"]:
-        max_v = p["max"] if p["max"] is not None else float(np.round(TungstenWire.s, 2))
-        dep_kwargs[p["id"]] = st.slider(
+        max_v = float(p["max"]) if p["max"] is not None else float(np.round(TungstenWire.s, 2))
+        cur_val = st.session_state.beam_params["dep"][dep_type].get(p["id"], p["default"])
+        val = st.slider(
             p["label"], 
-            min_value=p["min"], 
+            min_value=float(p["min"]), 
             max_value=max_v, 
-            value=p["default"],
+            value=float(cur_val),
+            step=float(p.get("step", 0.01)),
             key=f"dep_param_{dep_type}_{p['id']}"
         )
+        st.session_state.beam_params["dep"][dep_type][p["id"]] = val
+        dep_kwargs[p["id"]] = val
 
-    # Visualization
-    z_plot = np.linspace(-TungstenWire.L/2, TungstenWire.L/2, 500)
-    fig_prof, ax_prof = plt.subplots(figsize=(8, 3))
+    # Depth profile comparison plot
+    if dep_type == "Parametric Bragg Peak":
+        needed_x = dep_kwargs.get("x_peak", 1.3) + 1.0
+    else:
+        needed_x = dep_kwargs.get("depth", 2.0) + 0.5
+    x_plot_max = min(float(TungstenWire.s), max(3.0, float(needed_x)))
+    x_plot = np.linspace(0, x_plot_max, 500)
+
+    fig_dep, ax_dep = plt.subplots(figsize=(8, 3))
     
-    for name, config in BeamProfiles.LATERAL.items():
-        func_kwargs = {}
-        for p in config["params"]:
-            func_kwargs[p["id"]] = lat_kwargs.get(p["id"], p["default"])
-        
+    for name, config in BeamProfiles.DEPTH.items():
+        func_kwargs = st.session_state.beam_params["dep"][name]
         func = config["func"](func_kwargs)
-        profile_vals = func(z_plot)
+        profile_vals = func(x_plot)
         
-        if name == lat_type:
-            ax_prof.plot(z_plot, profile_vals, color='red', lw=3.0, label=f'{name} (Active)')
+        if name == dep_type:
+            ax_dep.plot(x_plot, profile_vals, color='red', lw=3.0, label=f'{name} (Active)')
         else:
-            ax_prof.plot(z_plot, profile_vals, color='blue', lw=1.5, alpha=0.5, label=f'{name} (Inactive)')
+            ax_dep.plot(x_plot, profile_vals, color='blue', lw=1.5, alpha=0.5, label=f'{name} (Inactive)')
             
-    ax_prof.set_xlabel("z position along wire (mm)")
-    ax_prof.set_ylabel("Normalized Dose Rate")
-    ax_prof.set_title("Lateral Beam Profile $g(z)$")
-    ax_prof.grid(True, linestyle='--', alpha=0.6)
-    ax_prof.legend(loc="upper right")
-    
-    st.pyplot(fig_prof)
+    ax_dep.set_xlabel("x position across wire depth (µm)")
+    ax_dep.set_ylabel("Normalized Dose Rate")
+    ax_dep.set_title("Depth Beam Profile $f(x)$")
+    ax_dep.grid(True, linestyle='--', alpha=0.6)
+    ax_dep.legend(loc="upper right")
+    st.pyplot(fig_dep)
 
 with tab_sim:
     current_profile_g_z = BeamProfiles.LATERAL[lat_type]["func"](lat_kwargs)

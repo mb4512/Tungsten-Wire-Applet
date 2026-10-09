@@ -1,0 +1,48 @@
+{
+  "version": "1.0",
+  "stages": [
+    {
+      "type": "irradiation",
+      "dpa": 1.0,
+      "stress": 1000.0
+    }
+  ],
+  "beam_settings": {
+    "lateral_shape": "Flat/Rastered",
+    "depth_shape": "Parametric Bragg Peak",
+    "lateral_params": {
+      "Gaussian": {
+        "width": 2.0
+      },
+      "Flat/Rastered": {
+        "width": 4.0
+      }
+    },
+    "depth_params": {
+      "Heaviside": {
+        "depth": 2.0
+      },
+      "Parametric Bragg Peak": {
+        "x_peak": 1.3,
+        "phi_0": 0.5,
+        "a": 0.7,
+        "c_5": 0.2
+      }
+    }
+  },
+  "material_settings": {
+    "E_GPa": 410.0,
+    "g_rate": 0.1,
+    "c_sat": 0.003,
+    "Omega_v": -0.3,
+    "Omega_il": 1.0,
+    "Omega_vl": -1.0,
+    "m_rate": 100.0,
+    "vl_mode": "fixed"
+  },
+  "runtime_settings": {
+    "Nx": 50,
+    "Nz": 150,
+    "N_steps": 500
+  }
+}
